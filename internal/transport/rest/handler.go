@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"lib/internal/domain"
-	"log"
 	"net/http"
 	"strconv"
 
@@ -64,7 +64,11 @@ func (h *Handler) createBook(w http.ResponseWriter, r *http.Request) {
 
 	err = h.booksService.Create(context.TODO(), book)
 	if err != nil {
-		log.Println("createBook() error:", err)
+		log.WithFields(log.Fields{
+			"handler": "createBook",
+			"error":   err,
+		}).Error()
+
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -75,7 +79,10 @@ func (h *Handler) createBook(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) getAllBooks(w http.ResponseWriter, r *http.Request) {
 	books, err := h.booksService.GetAll(context.TODO())
 	if err != nil {
-		log.Println("getAllBooks() error:", err)
+		log.WithFields(log.Fields{
+			"handler": "getAllBooks",
+			"error":   err,
+		}).Error()
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -111,7 +118,10 @@ func (h *Handler) updateBook(w http.ResponseWriter, r *http.Request) {
 
 	err = h.booksService.Update(context.TODO(), id, book)
 	if err != nil {
-		log.Printf("updateBook() error: %v", err)
+		log.WithFields(log.Fields{
+			"handler": "updateBook",
+			"error":   err,
+		}).Error()
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -127,7 +137,10 @@ func (h *Handler) deleteBook(w http.ResponseWriter, r *http.Request) {
 
 	err = h.booksService.Delete(context.TODO(), id)
 	if err != nil {
-		log.Printf("deleteBook() error: %v", err)
+		log.WithFields(log.Fields{
+			"handler": "deleteBook",
+			"error":   err,
+		}).Error()
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -147,14 +160,20 @@ func (h *Handler) getBookByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("getBookByID() error: %v", err)
+		log.WithFields(log.Fields{
+			"handler": "getBookByID",
+			"error":   err,
+		}).Error()
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	response, err := json.Marshal(books)
 	if err != nil {
-		log.Println("getBookByID() error:", err)
+		log.WithFields(log.Fields{
+			"handler": "getBookByID",
+			"error":   err,
+		}).Error()
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}

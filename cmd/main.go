@@ -7,11 +7,11 @@ import (
 	"lib/internal/service"
 	"lib/internal/transport/rest"
 	"lib/pkg/database"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
-	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -22,6 +22,12 @@ const (
 	CONFIG_FILE = "main"
 )
 
+func init() {
+	log.SetFormatter(&log.JSONFormatter{})
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.InfoLevel)
+}
+
 func main() {
 	cfg, err := config.NewConfig(CONFIG_DIR, CONFIG_FILE)
 	if err != nil {
@@ -31,8 +37,6 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Fatalf("error loading.env file: %s", err.Error())
 	}
-
-	fmt.Println(cfg)
 
 	db, err := database.NewPostgresConnection(
 		database.ConnectionInfo{
@@ -60,7 +64,7 @@ func main() {
 		Handler: handler.InitRouter(),
 	}
 
-	log.Println("SERVER STARTED AT", time.Now().Format(time.RFC3339))
+	log.Info("SERVER STARTED AT")
 
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
