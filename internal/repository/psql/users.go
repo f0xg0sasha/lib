@@ -10,16 +10,20 @@ type User struct {
 	db *sql.DB
 }
 
-func NewUser(db *sql.DB) *User {
+func NewUsers(db *sql.DB) *User {
 	return &User{db: db}
 }
 
-func (u *User) Create(ctx context.Context, user domain.User) error {
-	_, err := u.db.ExecContext(ctx, "INSERT INTO users (name, email, password, registered_at) VALUES ($1, $2, $3, $4)",
+func (r *User) Create(ctx context.Context, user domain.User) error {
+	_, err := r.db.ExecContext(ctx, "INSERT INTO users (name, email, password, registered_at) VALUES ($1, $2, $3, $4)",
 		user.Name, user.Email, user.Password, user.RegisteredAt)
 	return err
 }
 
-func (u *User) GetByCredentials(ctx context.Context, email, password string) (domain.User, error) {
-	return domain.User{}, nil
+func (r *User) GetByCredentials(ctx context.Context, email, password string) (domain.User, error) {
+	var user domain.User
+	err := r.db.QueryRowContext(ctx, "SELECT id, name, email, password, registered_at FROM users WHERE email=$1 AND password=$2",
+		email, password).Scan(&user.ID, &user.Name, &user.Email, &user.Password, &user.RegisteredAt)
+
+	return user, err
 }

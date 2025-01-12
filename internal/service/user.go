@@ -2,8 +2,14 @@ package service
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"fmt"
 	"lib/internal/domain"
+	"strconv"
 	"time"
+
+	"github.com/golang-jwt/jwt"
 )
 
 type PasswordHasher interface {
@@ -20,13 +26,15 @@ type Users struct {
 	hasher PasswordHasher
 
 	hmacSecret []byte
+	tokenTTL   time.Duration
 }
 
-func NewUsers(repo UsersRepository, hasher PasswordHasher, secret []byte) *Users {
+func NewUsers(repo UsersRepository, hasher PasswordHasher, secret []byte, ttl time.Duration) *Users {
 	return &Users{
 		repo:       repo,
 		hasher:     hasher,
 		hmacSecret: secret,
+		tokenTTL:   ttl,
 	}
 }
 
@@ -47,9 +55,58 @@ func (s *Users) SignUp(ctx context.Context, inp domain.SignUpInput) error {
 }
 
 func (s *Users) SignIn(ctx context.Context, inp domain.SignInInput) (string, error) {
-	return "", nil
+	password, err := s.hasher.Hash(inp.Password)
+	if err != nil {
+		return "", err
+	}
+
+	user, err := s.repo.GetByCredentials(ctx, inp.Email, password)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", domain.ErrUserNotFound
+		}
+		return "", err
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.StandardClaims{
+		Subject:   strconv.Itoa(int(user.ID)),
+		IssuedAt:  time.Now().Unix(),
+		ExpiresAt: time.Now().Add(s.tokenTTL).Unix(),
+	})
+
+	return token.SignedString(s.hmacSecret)
 }
 
 func (s *Users) ParseToken(ctx context.Context, token string) (int64, error) {
-	return 0, nil
+	t, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+		}
+		return s.hmacSecret, nil
+	})
+
+	if err != nil {
+		return 0, err
+	}
+
+	if !t.Valid {
+		return 0, errors.New("invalid token")
+	}
+
+	claims, ok := t.Claims.(jwt.MapClaims)
+	if !ok {
+		return 0, errors.New("invalid claims")
+	}
+
+	subject, ok := claims["sub"].(string)
+	if !ok {
+		return 0, errors.New("invalid subject")
+	}
+
+	id, err := strconv.Atoi(subject)
+	if err != nil {
+		return 0, errors.New("invalid subject")
+	}
+
+	return int64(id), nil
 }

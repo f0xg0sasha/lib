@@ -46,6 +46,8 @@ func (h *Handler) InitRouter() *mux.Router {
 
 	books := r.PathPrefix("/books").Subrouter()
 	{
+		books.Use(h.authMiddleware)
+
 		books.HandleFunc("/", h.createBook).Methods("POST")
 		books.HandleFunc("/", h.getAllBooks).Methods("GET")
 		books.HandleFunc("/{id:[0-9]+}", h.updateBook).Methods("PUT")

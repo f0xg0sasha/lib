@@ -60,8 +60,8 @@ func main() {
 	booksRepo := psql.NewBooks(db)
 	booksService := service.NewBooks(booksRepo)
 
-	usersRepo := psql.NewUser(db)
-	usersService := service.NewUsers(usersRepo, hasher, []byte(os.Getenv("HASH_SECRET")))
+	usersRepo := psql.NewUsers(db)
+	usersService := service.NewUsers(usersRepo, hasher, []byte(os.Getenv("HASH_SECRET")), cfg.Auth.TokenTTL)
 
 	handler := rest.NewHandler(booksService, usersService)
 

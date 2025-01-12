@@ -2,6 +2,7 @@ package rest
 
 import (
 	"encoding/json"
+	"errors"
 	"io/ioutil"
 	"lib/internal/domain"
 	"net/http"
@@ -57,11 +58,37 @@ func (h *Handler) signIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// token, err := h.usersService.SignIn(r.Context(), inp)
-	// if err != nil {
-	// 	logError("signIn", err)
-	// 	w.WriteHeader(http.StatusInternalServerError)
-	// 	return
-	// }
-	// 	todo return token for users
+	token, err := h.usersService.SignIn(r.Context(), inp)
+	if err != nil {
+		if errors.Is(err, domain.ErrUserNotFound) {
+			handleNotFoundError(w, err)
+			return
+		}
+
+		logError("signIn", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	response, err := json.Marshal(map[string]string{
+		"token": token,
+	})
+	if err != nil {
+		logError("signIn", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Add("Content-Type", "application/json")
+	w.Write(response)
+}
+
+func handleNotFoundError(w http.ResponseWriter, err error) {
+	response, _ := json.Marshal(map[string]string{
+		"error": err.Error(),
+	})
+
+	w.Header().Add("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	w.Write(response)
 }
