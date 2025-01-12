@@ -7,6 +7,7 @@ import (
 	"lib/internal/service"
 	"lib/internal/transport/rest"
 	"lib/pkg/database"
+	"lib/pkg/hash"
 	"net/http"
 	"os"
 	"strconv"
@@ -54,10 +55,15 @@ func main() {
 	}
 
 	defer db.Close()
+	hasher := hash.NewSHA1Hasher("salt")
 
 	booksRepo := psql.NewBooks(db)
-	service := service.NewBooks(booksRepo)
-	handler := rest.NewBooksHandler(service)
+	booksService := service.NewBooks(booksRepo)
+
+	usersRepo := psql.NewUser(db)
+	usersService := service.NewUsers(usersRepo, hasher, []byte(os.Getenv("HASH_SECRET")))
+
+	handler := rest.NewHandler(booksService, usersService)
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),

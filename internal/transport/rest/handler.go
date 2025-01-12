@@ -2,13 +2,7 @@ package rest
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	log "github.com/sirupsen/logrus"
-	"io/ioutil"
 	"lib/internal/domain"
-	"net/http"
-	"strconv"
 
 	"github.com/gorilla/mux"
 )
@@ -21,13 +15,21 @@ type Books interface {
 	GetByID(ctx context.Context, id int64) (domain.Book, error)
 }
 
-type Handler struct {
-	booksService Books
+type User interface {
+	SignIn(ctx context.Context, inp domain.SignInInput) (string, error)
+	SignUp(ctx context.Context, inp domain.SignUpInput) error
+	ParseToken(ctx context.Context, token string) (int64, error)
 }
 
-func NewBooksHandler(books Books) *Handler {
+type Handler struct {
+	booksService Books
+	usersService User
+}
+
+func NewHandler(books Books, users User) *Handler {
 	return &Handler{
 		booksService: books,
+		usersService: users,
 	}
 }
 
@@ -35,6 +37,12 @@ func (h *Handler) InitRouter() *mux.Router {
 	r := mux.NewRouter()
 
 	r.Use(loggingMiddleware)
+
+	auth := r.PathPrefix("/auth").Subrouter()
+	{
+		auth.HandleFunc("/sign-up", h.signUp).Methods("POST")
+		auth.HandleFunc("/sign-in", h.signIn).Methods("POST")
+	}
 
 	books := r.PathPrefix("/books").Subrouter()
 	{
@@ -46,152 +54,4 @@ func (h *Handler) InitRouter() *mux.Router {
 	}
 
 	return r
-}
-
-func (h *Handler) createBook(w http.ResponseWriter, r *http.Request) {
-	reqBytes, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	book := domain.Book{}
-	err = json.Unmarshal(reqBytes, &book)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	err = h.booksService.Create(context.TODO(), book)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"handler": "createBook",
-			"error":   err,
-		}).Error()
-
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-}
-
-func (h *Handler) getAllBooks(w http.ResponseWriter, r *http.Request) {
-	books, err := h.booksService.GetAll(context.TODO())
-	if err != nil {
-		log.WithFields(log.Fields{
-			"handler": "getAllBooks",
-			"error":   err,
-		}).Error()
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	response, err := json.Marshal(books)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Add("Content-Type", "application/json")
-	w.Write(response)
-}
-
-func (h *Handler) updateBook(w http.ResponseWriter, r *http.Request) {
-	id, err := getIdFromRequest(r)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	reqBytes, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	book := domain.UpdateBook{}
-	err = json.Unmarshal(reqBytes, &book)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-	}
-
-	err = h.booksService.Update(context.TODO(), id, book)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"handler": "updateBook",
-			"error":   err,
-		}).Error()
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-}
-
-func (h *Handler) deleteBook(w http.ResponseWriter, r *http.Request) {
-	id, err := getIdFromRequest(r)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-	}
-
-	err = h.booksService.Delete(context.TODO(), id)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"handler": "deleteBook",
-			"error":   err,
-		}).Error()
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-}
-
-func (h *Handler) getBookByID(w http.ResponseWriter, r *http.Request) {
-	id, err := getIdFromRequest(r)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	books, err := h.booksService.GetByID(context.TODO(), id)
-	if err != nil {
-		if errors.Is(err, domain.ErrBookNotFound) {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		log.WithFields(log.Fields{
-			"handler": "getBookByID",
-			"error":   err,
-		}).Error()
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	response, err := json.Marshal(books)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"handler": "getBookByID",
-			"error":   err,
-		}).Error()
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Add("Content-Type", "application/json")
-	w.Write(response)
-}
-
-func getIdFromRequest(r *http.Request) (int64, error) {
-	vars := mux.Vars(r)
-	id, err := strconv.ParseInt(vars["id"], 10, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	if id <= 0 {
-		return 0, errors.New("id can't be 0")
-	}
-
-	return id, nil
 }
