@@ -3,9 +3,12 @@ package rest
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"lib/internal/domain"
 	"net/http"
+
+	"github.com/sirupsen/logrus"
 )
 
 func (h *Handler) signUp(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +61,7 @@ func (h *Handler) signIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := h.usersService.SignIn(r.Context(), inp)
+	accessToken, refreshToken, err := h.usersService.SignIn(r.Context(), inp)
 	if err != nil {
 		if errors.Is(err, domain.ErrUserNotFound) {
 			handleNotFoundError(w, err)
@@ -71,14 +74,14 @@ func (h *Handler) signIn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response, err := json.Marshal(map[string]string{
-		"token": token,
+		"token": accessToken,
 	})
 	if err != nil {
 		logError("signIn", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-
+	w.Header().Add("Set-Cookie", fmt.Sprintf("refresh-token=%s; HttpOnly", refreshToken))
 	w.Header().Add("Content-Type", "application/json")
 	w.Write(response)
 }
@@ -90,5 +93,37 @@ func handleNotFoundError(w http.ResponseWriter, err error) {
 
 	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
+	w.Write(response)
+}
+
+func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("refresh-token")
+	if err != nil {
+		logError("refresh", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	logrus.Infof("%s", cookie.Value)
+
+	accsesToken, refreshToken, err := h.usersService.RefreshToken(r.Context(), cookie.Value)
+	if err != nil {
+		logError("refresh", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	response, err := json.Marshal(map[string]string{
+		"token": accsesToken,
+	})
+
+	if err != nil {
+		logError("refresh", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Add("Set-Cookie", fmt.Sprintf("refresh-token='%s'; HttpOnly", refreshToken))
+	w.Header().Add("Content-Type", "application/json")
 	w.Write(response)
 }
