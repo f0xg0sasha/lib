@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/f0xg0sasha/audit_logger/pkg/domain/audit"
 	"github.com/golang-jwt/jwt"
 	"golang.org/x/exp/rand"
 )
@@ -32,15 +33,18 @@ type Users struct {
 	sessionRepo SessionRepository
 	hasher      PasswordHasher
 
+	auditClient AuditClient
+
 	hmacSecret []byte
 	tokenTTL   time.Duration
 }
 
-func NewUsers(repo UsersRepository, sessionRepo SessionRepository, hasher PasswordHasher, secret []byte, ttl time.Duration) *Users {
+func NewUsers(repo UsersRepository, sessionRepo SessionRepository, hasher PasswordHasher, auditClient AuditClient, secret []byte, ttl time.Duration) *Users {
 	return &Users{
 		repo:        repo,
 		sessionRepo: sessionRepo,
 		hasher:      hasher,
+		auditClient: auditClient,
 		hmacSecret:  secret,
 		tokenTTL:    ttl,
 	}
@@ -59,7 +63,25 @@ func (s *Users) SignUp(ctx context.Context, inp domain.SignUpInput) error {
 		RegisteredAt: time.Now(),
 	}
 
-	return s.repo.Create(ctx, user)
+	if err := s.repo.Create(ctx, user); err != nil {
+		return err
+	}
+
+	user, err = s.repo.GetByCredentials(ctx, inp.Email, password)
+	if err != nil {
+		return err
+	}
+
+	if err := s.auditClient.SendLogRequest(ctx, audit.LogItem{
+		Action:    audit.ACTION_REGISTER,
+		Entity:    audit.ENTITY_USER,
+		EntityID:  user.ID,
+		Timestamp: time.Now(),
+	}); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *Users) SignIn(ctx context.Context, inp domain.SignInInput) (string, string, error) {
@@ -76,13 +98,27 @@ func (s *Users) SignIn(ctx context.Context, inp domain.SignInInput) (string, str
 		return "", "", err
 	}
 
-	return s.generateTokens(ctx, user.ID)
+	accessToken, refreshToken, err := s.generateTokens(ctx, user.ID)
+	if err != nil {
+		return "", "", err
+	}
+
+	if err := s.auditClient.SendLogRequest(ctx, audit.LogItem{
+		Action:    audit.ACTION_LOGIN,
+		Entity:    audit.ENTITY_USER,
+		EntityID:  user.ID,
+		Timestamp: time.Now(),
+	}); err != nil {
+		return "", "", err
+	}
+
+	return accessToken, refreshToken, nil
 }
 
 func (s *Users) ParseToken(ctx context.Context, token string) (int64, error) {
 	t, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return s.hmacSecret, nil
 	})
@@ -117,7 +153,7 @@ func (s *Users) generateTokens(ctx context.Context, userId int64) (string, strin
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.StandardClaims{
 		Subject:   strconv.Itoa(int(userId)),
 		IssuedAt:  time.Now().Unix(),
-		ExpiresAt: time.Now().Add(s.tokenTTL).Unix(),
+		ExpiresAt: time.Now().Add(time.Minute * 30).Unix(),
 	})
 
 	accessToken, err := token.SignedString(s.hmacSecret)
@@ -133,7 +169,7 @@ func (s *Users) generateTokens(ctx context.Context, userId int64) (string, strin
 	if err := s.sessionRepo.Create(ctx, domain.RefreshSession{
 		UserID:    userId,
 		Token:     refreshToken,
-		ExpiresAt: time.Now().Add(time.Hour * 24),
+		ExpiresAt: time.Now().Add(time.Hour * 24 * 30),
 	}); err != nil {
 		return "", "", err
 	}
@@ -160,7 +196,7 @@ func (s *Users) RefreshToken(ctx context.Context, refreshToken string) (string, 
 		return "", "", err
 	}
 
-	if session.ExpiresAt.Before(time.Now()) {
+	if session.ExpiresAt.Unix() < time.Now().Unix() {
 		return "", "", domain.ErrRefreshTokenExpired
 	}
 

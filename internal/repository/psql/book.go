@@ -18,11 +18,15 @@ func NewBooks(db *sql.DB) *Books {
 	}
 }
 
-func (b *Books) Create(ctx context.Context, book domain.Book) error {
-	_, err := b.db.Exec("INSERT INTO books (name, author, publisher, rating) values ($1, $2, $3, $4)",
-		book.Name, book.Author, book.Publisher, book.Rating)
+func (b *Books) Create(ctx context.Context, book domain.Book) (int64, error) {
+	var id int64
+	err := b.db.QueryRow("INSERT INTO books (name, author, publisher, rating) VALUES ($1, $2, $3, $4) RETURNING id",
+		book.Name, book.Author, book.Publisher, book.Rating).Scan(&id)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return id, nil
 }
 
 func (b *Books) GetAll(ctx context.Context) ([]domain.Book, error) {

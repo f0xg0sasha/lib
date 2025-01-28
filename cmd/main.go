@@ -5,6 +5,7 @@ import (
 	"lib/internal/config"
 	"lib/internal/repository/psql"
 	"lib/internal/service"
+	grpc_client "lib/internal/transport/grpc"
 	"lib/internal/transport/rest"
 	"lib/pkg/database"
 	"lib/pkg/hash"
@@ -57,12 +58,18 @@ func main() {
 	defer db.Close()
 	hasher := hash.NewSHA1Hasher("salt")
 
+	auditService, err := grpc_client.NewClient(9000)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	booksRepo := psql.NewBooks(db)
-	booksService := service.NewBooks(booksRepo)
+	booksService := service.NewBooks(booksRepo, auditService)
 
 	usersRepo := psql.NewUsers(db)
 	tokenRepo := psql.NewToken(db)
-	usersService := service.NewUsers(usersRepo, tokenRepo, hasher, []byte(os.Getenv("HASH_SECRET")), cfg.Auth.TokenTTL)
+
+	usersService := service.NewUsers(usersRepo, tokenRepo, hasher, auditService, []byte(os.Getenv("HASH_SECRET")), cfg.Auth.TokenTTL)
 
 	handler := rest.NewHandler(booksService, usersService)
 
